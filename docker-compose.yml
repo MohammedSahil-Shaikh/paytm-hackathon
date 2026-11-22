@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: day-zero-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dayzero
+      POSTGRES_PASSWORD: dayzero
+      POSTGRES_DB: dayzero
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dayzero -d dayzero"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: day-zero-backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      APP_NAME: Day Zero Backend
+      API_PREFIX: /api/v1
+      FRONTEND_URL: http://localhost:3000
+      DATABASE_URL: postgresql+asyncpg://dayzero:dayzero@postgres:5432/dayzero
+      AI_SERVICE_URL: http://ai-service:8001
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: day-zero-ai-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      AI_SERVICE_NAME: Day Zero AI Service
+      LLM_PROVIDER: stub
+      LLM_API_KEY: ""
+      LLM_MODEL: ""
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: day-zero-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
+      NEXT_PUBLIC_AI_SERVICE_URL: http://localhost:8001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+      - ai-service
+
+volumes:
+  postgres_data:
