@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #07111f;
+  --foreground: #e8eef8;
+  --card: rgba(15, 27, 45, 0.72);
+  --accent: #4f7cff;
+  --accent-2: #7c5cff;
+  --muted: #93a4bd;
+}
+
+body {
+  color: var(--foreground);
+  background:
+    radial-gradient(circle at top left, rgba(79, 124, 255, 0.18), transparent 32%),
+    radial-gradient(circle at top right, rgba(124, 92, 255, 0.16), transparent 28%),
+    var(--background);
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
