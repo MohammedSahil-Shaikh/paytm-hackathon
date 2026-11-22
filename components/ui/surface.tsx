@@ -10,7 +10,7 @@ export function Surface({
   return (
     <div
       className={cn(
-        "rounded-[28px] border border-gold-500/15 bg-navy-800/55 p-6 shadow-glow backdrop-blur-md",
+        "rounded-[28px] border border-navy-600 bg-white p-6 shadow-glow",
         className,
       )}
     >

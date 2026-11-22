@@ -108,12 +108,18 @@ export function extractGeminiText(payload: GeminiResponse): string {
   return parts.join("\n\n").trim();
 }
 
-export async function askGemini(prompt: string): Promise<string> {
-  const payload = await serpApiSearch<GeminiResponse>({
-    engine: "google_gemini",
-    q: prompt,
-    no_cache: true,
-  });
+export async function askGemini(
+  prompt: string,
+  timeoutMs = 50_000,
+): Promise<string> {
+  const payload = await serpApiSearch<GeminiResponse>(
+    {
+      engine: "google_gemini",
+      q: prompt,
+      no_cache: true,
+    },
+    timeoutMs,
+  );
 
   const text = extractGeminiText(payload);
   if (!text) {

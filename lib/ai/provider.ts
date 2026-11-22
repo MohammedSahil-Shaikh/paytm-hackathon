@@ -62,8 +62,9 @@ export async function generateJson<T>(input: {
   ].join("\n");
 
   try {
+    // Keep provider timeout slightly under the caller budget so AbortController fires first.
     const content = await Promise.race([
-      askGemini(prompt),
+      askGemini(prompt, Math.max(5_000, timeoutMs - 2_000)),
       new Promise<string>((_, reject) => {
         setTimeout(() => {
           reject(new AiProviderError("AI provider request timed out", "TIMEOUT"));

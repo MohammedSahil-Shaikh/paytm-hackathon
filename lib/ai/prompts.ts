@@ -235,6 +235,8 @@ export function buildHrAssistantPrompts(input: {
 Answer using only provided policy/onboarding context.
 If policy details are missing, clearly say you do not have verified information.
 Never invent leave, salary, benefits, or work timings.
+Format the answer field as readable markdown with short headings (## / ###), short paragraphs, and bullet lists (- item).
+Do not return one long dense paragraph.
 Return strict JSON only.`;
 
   const user = `Company: ${input.company}
@@ -250,7 +252,7 @@ ${truncateText(input.question, 1000)}
 
 Return JSON:
 {
-  "answer": "...",
+  "answer": "## Heading\\n\\nShort intro.\\n\\n### Section\\n- bullet\\n- bullet",
   "sources": ["policy|onboarding|none"],
   "verified": true
 }`;

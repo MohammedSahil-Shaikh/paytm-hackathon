@@ -5,17 +5,23 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
+  Flag,
   LoaderCircle,
   Mic,
   MicOff,
   Send,
   Volume2,
   Keyboard,
+  X,
 } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
-import { Surface, Eyebrow } from "@/components/ui/surface";
-import { ProctorCamera } from "@/components/interview/proctor-camera";
+import {
+  ProctorCamera,
+  type ProctorCameraHandle,
+} from "@/components/interview/proctor-camera";
 import { InterviewAgent } from "@/components/interview/interview-agent";
+import { ProgressSidebar } from "@/components/interview/progress-sidebar";
+import { seedDemoJourney } from "@/lib/client/seed";
 import {
   ApiClientError,
   finishInterview,
@@ -26,6 +32,7 @@ import {
   ensureCandidate,
   ensureResearch,
   readJourney,
+  resetInterviewProgress,
   writeJourney,
 } from "@/lib/client/journey-store";
 import {
@@ -54,6 +61,8 @@ export function InterviewPanel() {
   const currentQuestionRef = useRef<InterviewQuestion | null>(null);
   const submittingRef = useRef(false);
   const autoListenRef = useRef(true);
+  const cameraRef = useRef<ProctorCameraHandle | null>(null);
+  const manualTypingRef = useRef(false);
 
   const [phase, setPhase] = useState<Phase>("lobby");
   const [starting, setStarting] = useState(false);
@@ -79,12 +88,26 @@ export function InterviewPanel() {
   const [listening, setListening] = useState(false);
   const [speakingQuestion, setSpeakingQuestion] = useState(false);
   const [statusLine, setStatusLine] = useState("Waiting to begin");
-  const [showTextInput, setShowTextInput] = useState(false);
+  const [showTextInput, setShowTextInput] = useState(true);
   const [speechSupported] = useState(() => canUseSpeechRecognition());
+  const [canResume, setCanResume] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [skippedIds, setSkippedIds] = useState<string[]>([]);
+  const [answeredIds, setAnsweredIds] = useState<string[]>([]);
+  const [showFinishConfirm, setShowFinishConfirm] = useState(false);
 
   useEffect(() => {
     answerRef.current = answer;
   }, [answer]);
+
+  useEffect(() => {
+    if (!showFinishConfirm) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && !finishing) setShowFinishConfirm(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showFinishConfirm, finishing]);
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
@@ -172,16 +195,26 @@ export function InterviewPanel() {
 
       if (isDone) {
         setStatusLine("Wrapping up the interview…");
+        setPhase("complete");
+        setCurrentQuestion(null);
+        writeJourney({ interviewComplete: true, currentQuestion: null });
         await speakEnglish(
           `Okay, that was wonderful. We've covered everything for now. I'll prepare your report.`,
-          {
-            onend: () => {
-              setPhase("complete");
-              setCurrentQuestion(null);
-              writeJourney({ interviewComplete: true, currentQuestion: null });
-            },
-          },
         );
+        // Persist report immediately so /report doesn't depend on a live in-memory session.
+        const sid = sessionIdRef.current;
+        if (sid && !readJourney().report) {
+          try {
+            const finished = await finishInterview(sid);
+            writeJourney({
+              report: finished.report,
+              interviewComplete: true,
+              interviewSource: finished.source,
+            });
+          } catch {
+            // User can still retry Generate report from the complete screen.
+          }
+        }
         return;
       }
 
@@ -235,6 +268,17 @@ export function InterviewPanel() {
         });
         setAnswer("");
         answerRef.current = "";
+        setAnsweredIds((prev) => {
+          const next = prev.includes(question.id) ? prev : [...prev, question.id];
+          writeJourney({
+            answeredQuestionIds: next,
+            skippedQuestionIds: (readJourney().skippedQuestionIds || []).filter(
+              (id) => id !== question.id,
+            ),
+          });
+          return next;
+        });
+        setSkippedIds((prev) => prev.filter((id) => id !== question.id));
         await handleEvaluationResult(data);
       } catch (err) {
         setError(
@@ -257,22 +301,29 @@ export function InterviewPanel() {
     if (submittingRef.current || timedOut) return;
     stopDictation();
     stopSpeaking();
+    manualTypingRef.current = false;
     setError(null);
-    setStatusLine("Listening… please answer out loud");
+    setStatusLine("Listening… speak or type your answer");
+    setShowTextInput(true);
 
     const handle = startEnglishDictation({
-      silenceMs: 2200,
-      minCharsForAutoSubmit: 20,
+      silenceMs: 3500,
+      minCharsForAutoSubmit: 40,
       onPartial: (text) => {
+        if (manualTypingRef.current) return;
         setAnswer(text);
         answerRef.current = text;
       },
       onFinal: (text) => {
+        if (manualTypingRef.current) return;
         setAnswer(text);
         answerRef.current = text;
       },
       onSilenceComplete: (text) => {
-        void submitCurrentAnswer(text);
+        const payload = manualTypingRef.current
+          ? answerRef.current
+          : text || answerRef.current;
+        void submitCurrentAnswer(payload);
       },
       onError: (message) => {
         setError(message);
@@ -302,8 +353,8 @@ export function InterviewPanel() {
         onend: () => {
           setSpeakingQuestion(false);
           if (autoListenRef.current) {
-            // Small beat so TTS release doesn't clip the mic
-            window.setTimeout(() => startListening(), 350);
+            // Wait for TTS audio to fully release before opening the mic
+            window.setTimeout(() => startListening(), 900);
           }
         },
         onerror: (message) => {
@@ -317,34 +368,63 @@ export function InterviewPanel() {
   );
 
   useEffect(() => {
+    seedDemoJourney({ clearInterview: false });
     const existing = readJourney();
+    // Never auto-jump into a live session — in-memory server sessions die on refresh.
+    // Offer an explicit resume only when we still have local question state.
     if (
       existing.sessionId &&
       existing.currentQuestion &&
       existing.interviewStartedAt &&
       !existing.interviewComplete
     ) {
+      setCanResume(true);
       setSessionId(existing.sessionId);
       setQuestions(existing.questions);
       setCurrentQuestion(existing.currentQuestion);
       setCurrentQuestionIndex(existing.currentQuestionIndex);
-      setTrail(
-        existing.questions.length
-          ? existing.questions.slice(0, Math.max(1, existing.currentQuestionIndex + 1))
-          : [existing.currentQuestion],
-      );
-      setTrailIndex(Math.max(0, existing.currentQuestionIndex));
       setEvaluation(existing.lastEvaluation);
       setSource(existing.interviewSource);
       setInterviewStartedAt(existing.interviewStartedAt);
       setProctorWarnings(existing.proctorWarnings || 0);
-      setPhase("live");
+      setSkippedIds(existing.skippedQuestionIds || []);
+      setAnsweredIds(existing.answeredQuestionIds || []);
     }
     return () => {
       stopDictation();
       stopSpeaking();
     };
   }, [stopDictation]);
+
+  function resumeInterview() {
+    if (!cameraReady) {
+      setError("Camera must be live before you can resume the interview.");
+      return;
+    }
+    const existing = readJourney();
+    if (!existing.sessionId || !existing.currentQuestion) {
+      setError("No resumable session found. Start a new interview.");
+      setCanResume(false);
+      return;
+    }
+    setSessionId(existing.sessionId);
+    setQuestions(existing.questions);
+    setCurrentQuestion(existing.currentQuestion);
+    setCurrentQuestionIndex(existing.currentQuestionIndex);
+    setTrail(
+      existing.questions.length
+        ? existing.questions.slice(0, Math.max(1, existing.currentQuestionIndex + 1))
+        : [existing.currentQuestion],
+    );
+    setTrailIndex(Math.max(0, existing.currentQuestionIndex));
+    setEvaluation(existing.lastEvaluation);
+    setSource(existing.interviewSource);
+    setInterviewStartedAt(existing.interviewStartedAt);
+    setProctorWarnings(existing.proctorWarnings || 0);
+    lastSpokenQuestionId.current = null;
+    setPhase("live");
+    setStatusLine("Resumed interview");
+  }
 
   useEffect(() => {
     if (phase !== "live" || !interviewStartedAt) return;
@@ -378,14 +458,11 @@ export function InterviewPanel() {
     setCameraReady(ready);
   }, []);
 
-  async function beginInterview(requireCamera: boolean) {
+  async function beginInterview() {
     if (starting) return;
-    if (requireCamera && !cameraReady) {
-      setError("Turn on the camera (top right → Allow camera), or start without camera.");
-      return;
-    }
     if (!cameraReady) {
-      onProctorWarning("Interview started without live proctor camera.");
+      setError("Camera must be live before the interview can begin. Allow access and retry.");
+      return;
     }
 
     setStarting(true);
@@ -397,16 +474,8 @@ export function InterviewPanel() {
       const jobDescription = existing.jobDescription || "";
       const startedAt = new Date().toISOString();
 
-      writeJourney({
-        sessionId: null,
-        questions: [],
-        currentQuestion: null,
-        interviewComplete: false,
-        interviewStartedAt: null,
-        report: null,
-        onboardingPlan: null,
-        lastEvaluation: null,
-      });
+      resetInterviewProgress();
+      writeJourney({ onboardingPlan: null });
 
       const data = await startInterview({
         candidate,
@@ -428,6 +497,9 @@ export function InterviewPanel() {
       setAnswer("");
       setTimedOut(false);
       setInterviewStartedAt(startedAt);
+      setSkippedIds([]);
+      setAnsweredIds([]);
+      setShowFinishConfirm(false);
       setPhase("live");
       setStatusLine("Interview started");
 
@@ -442,7 +514,9 @@ export function InterviewPanel() {
         interviewSource: data.source,
         interviewComplete: false,
         interviewStartedAt: startedAt,
-        proctorWarnings: cameraReady ? 0 : 1,
+        proctorWarnings: 0,
+        skippedQuestionIds: [],
+        answeredQuestionIds: [],
         lastEvaluation: null,
         report: null,
         onboardingPlan: null,
@@ -524,28 +598,96 @@ export function InterviewPanel() {
     writeJourney({ interviewComplete: true, currentQuestion: null });
   }
 
+  function skipQuestion() {
+    if (!currentQuestion || submitting || finishing) return;
+    stopDictation();
+    stopSpeaking();
+    const questionId = currentQuestion.id;
+    setSkippedIds((prev) => {
+      const next = prev.includes(questionId) ? prev : [...prev, questionId];
+      writeJourney({
+        skippedQuestionIds: next,
+        answeredQuestionIds: (readJourney().answeredQuestionIds || []).filter(
+          (id) => id !== questionId,
+        ),
+      });
+      return next;
+    });
+    setAnsweredIds((prev) => prev.filter((id) => id !== questionId));
+    setAnswer("");
+    answerRef.current = "";
+    setEvaluation(null);
+    setStatusLine("Question skipped");
+    goNext();
+  }
+
+  function incompleteCounts() {
+    const answered = new Set(answeredIds);
+    const skipped = new Set(skippedIds);
+    const notAttempted = questions.filter(
+      (question) => !answered.has(question.id) && !skipped.has(question.id),
+    ).length;
+    return {
+      skipped: skippedIds.length,
+      notAttempted,
+      totalIncomplete: skippedIds.length + notAttempted,
+    };
+  }
+
+  function requestFinish() {
+    const counts = incompleteCounts();
+    if (counts.totalIncomplete > 0) {
+      setShowFinishConfirm(true);
+      return;
+    }
+    void onFinish();
+  }
+
   async function onFinish() {
     if (!sessionId || finishing) return;
     stopDictation();
     stopSpeaking();
+    setShowFinishConfirm(false);
     setFinishing(true);
     setError(null);
+    setStatusLine("Generating your report…");
     try {
+      const existingReport = readJourney().report;
+      if (existingReport) {
+        router.push("/report");
+        return;
+      }
       const data = await finishInterview(sessionId);
       writeJourney({
         report: data.report,
         interviewComplete: true,
         interviewSource: data.source,
+        currentQuestion: null,
+        skippedQuestionIds: skippedIds,
+        answeredQuestionIds: answeredIds,
       });
       router.push("/report");
     } catch (err) {
-      setError(
+      const message =
         err instanceof ApiClientError
           ? err.message
           : err instanceof Error
             ? err.message
-            : "Failed to finish interview",
-      );
+            : "Failed to finish interview";
+      // Stale session after server restart — force a clean restart path.
+      if (message.toLowerCase().includes("not found")) {
+        writeJourney({
+          sessionId: null,
+          interviewStartedAt: null,
+          interviewComplete: false,
+          currentQuestion: null,
+        });
+        setCanResume(false);
+        setPhase("lobby");
+        setError("Session expired after a server restart. Please begin a new interview.");
+      } else {
+        setError(message);
+      }
     } finally {
       setFinishing(false);
     }
@@ -567,186 +709,234 @@ export function InterviewPanel() {
           questions.findIndex((q) => q.id === currentQuestion.id) < questions.length - 1,
       ));
 
+  const agentStatus = submitting
+    ? nextAction === "follow_up" || statusLine.toLowerCase().includes("follow")
+      ? "Generating follow-up"
+      : "Evaluating answer"
+    : speakingQuestion
+      ? "Speaking"
+      : listening
+        ? "Listening"
+        : phase === "complete"
+          ? "Interview complete"
+          : "Ready";
+
+  const btnPrimary =
+    "!bg-[#F4C430] !text-[#1C1C1C] !shadow-none hover:!bg-[#E5B94C] disabled:!opacity-50";
+  const btnSecondary =
+    "!border-[#EAE5D9] !bg-white !text-[#1C1C1C] !shadow-none hover:!bg-[#FFFDF8] disabled:!opacity-50";
+
+  const progressIndex =
+    phase === "complete"
+      ? Math.max(questions.length - 1, 0)
+      : Math.max(
+          currentQuestion
+            ? questions.findIndex((q) => q.id === currentQuestion.id)
+            : currentQuestionIndex,
+          0,
+        );
+
   return (
-    <div className="relative pb-28">
-      <ProctorCamera
-        compact
-        enabled
-        className="fixed right-4 top-20 z-40 sm:right-6 sm:top-24"
-        onStatusChange={onCameraStatus}
-        onWarning={onProctorWarning}
+    <div className="flex min-h-[calc(100vh-64px)] flex-col lg:flex-row">
+      <ProgressSidebar
+        questions={phase === "lobby" ? [] : questions}
+        currentQuestionId={phase === "lobby" ? null : (currentQuestion?.id ?? null)}
+        currentIndex={phase === "lobby" ? 0 : progressIndex}
+        timerLabel={formatCountdown(msLeft)}
+        timerUrgent={timerUrgent}
+        statusLine={statusLine}
+        warnings={proctorWarnings}
+        skippedIds={skippedIds}
+        answeredIds={answeredIds}
+        phase={phase}
       />
 
-      {phase === "lobby" ? (
-        <Surface className="mx-auto max-w-2xl">
-          <InterviewAgent speaking={false} />
-          <h2 className="mt-6 text-center font-display text-2xl font-semibold text-ink-50">
-            Ready when you are
-          </h2>
-          <p className="mx-auto mt-3 max-w-lg text-center text-sm text-ink-300">
-            After you begin, the agent asks each question in a sweet female voice, then
-            listens automatically. Pause when you finish speaking and she will analyze
-            your answer, follow up if needed, or move on.
-          </p>
-          {error ? (
-            <p className="mt-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-center text-sm text-red-200">
-              {error}
-            </p>
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        <ProctorCamera
+          ref={cameraRef}
+          enabled
+          showPreview={phase !== "lobby"}
+          monitorFocus={phase === "live"}
+          className={
+            phase === "lobby"
+              ? undefined
+              : "absolute right-4 top-4 z-30 sm:right-8 sm:top-5"
+          }
+          onStatusChange={onCameraStatus}
+          onWarning={onProctorWarning}
+          onErrorChange={setCameraError}
+        />
+
+        <div
+          className={`flex flex-1 flex-col px-4 pb-28 sm:px-10 lg:px-12 ${
+            phase === "lobby"
+              ? "pt-6"
+              : "pt-[11.5rem] sm:pt-6 lg:pr-[280px] lg:pt-6"
+          }`}
+        >
+          {phase === "live" && !cameraReady ? (
+            <div className="mb-4 rounded-2xl border border-[#F4C430] bg-[rgba(244,196,48,0.12)] px-4 py-3 text-sm text-[#1C1C1C]">
+              Camera became unavailable. Use Retry camera in the preview to restore proctoring.
+              {lastProctorNote ? ` (${lastProctorNote})` : null}
+            </div>
           ) : null}
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Button onClick={() => void beginInterview(true)} disabled={starting || !cameraReady}>
-              {starting ? (
-                <>
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                  Starting…
-                </>
-              ) : (
-                <>
-                  Begin interview
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={starting}
-              onClick={() => void beginInterview(false)}
-            >
-              Start without camera
-            </Button>
-          </div>
-        </Surface>
-      ) : null}
 
-      {phase !== "lobby" ? (
-        <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-          <Surface>
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <Eyebrow>Progress</Eyebrow>
-                <p className="mt-3 font-display text-3xl font-semibold text-gold-500">
-                  {Math.min(trailIndex + 1, Math.max(questions.length, 1))} /{" "}
-                  {Math.max(questions.length, 1)}
-                </p>
-                <p className="mt-2 text-sm text-ink-300">
-                  Conversational · English female voice
-                  {source ? ` · ${source}` : ""}
-                </p>
-              </div>
-              <div className="text-right">
-                <Eyebrow>Test timer</Eyebrow>
-                <p
-                  className={`mt-2 font-display text-3xl font-semibold tabular-nums ${
-                    timerUrgent ? "text-red-300" : "text-ink-50"
-                  }`}
+          {error ? (
+            <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          ) : null}
+
+          {phase === "lobby" ? (
+            <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center py-10 text-center">
+              <InterviewAgent speaking={false} status="Ready" />
+              <h1 className="mt-8 font-display text-3xl font-semibold text-[#1C1C1C] sm:text-4xl">
+                Voice AI Interview
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#737373]">
+                Camera permission is required before you begin. The live camera preview appears
+                only after the interview starts. The agent then asks each question in English,
+                listens automatically, evaluates your answer, and follows up when needed.
+              </p>
+              <div className="mt-8 flex flex-wrap justify-center gap-3">
+                <Button
+                  className={btnPrimary}
+                  onClick={() => void beginInterview()}
+                  disabled={starting || !cameraReady}
                 >
-                  {formatCountdown(msLeft)}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-2">
-              {questions.map((question, index) => (
-                <div
-                  key={question.id}
-                  className={`rounded-xl px-3 py-2 text-sm ${
-                    currentQuestion?.id === question.id
-                      ? "bg-gold-500/15 text-gold-400"
-                      : "bg-navy-900/40 text-ink-400"
-                  }`}
-                >
-                  Q{index + 1} · {question.category}
-                </div>
-              ))}
-            </div>
-
-            <p className="mt-6 text-xs text-gold-400">{statusLine}</p>
-            <div className="mt-3 flex flex-wrap gap-3 text-xs text-ink-400">
-              <span>Proctor warnings: {proctorWarnings}</span>
-            </div>
-            {lastProctorNote ? (
-              <p className="mt-2 text-xs text-gold-400">{lastProctorNote}</p>
-            ) : null}
-          </Surface>
-
-          <Surface className="min-h-[420px] sm:pr-[250px]">
-            {error ? (
-              <div className="mb-4 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                {error}
-              </div>
-            ) : null}
-
-            {phase === "complete" || !currentQuestion ? (
-              <div>
-                <InterviewAgent speaking={false} label="Interview complete" />
-                <div className="mt-6">
-                  <Eyebrow>
-                    {timedOut ? "Time expired" : "Interview complete"}
-                  </Eyebrow>
-                </div>
-                <h2 className="mt-3 font-display text-2xl font-semibold text-ink-50">
-                  Ready to generate your evidence-based report
-                </h2>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <Button onClick={() => void onFinish()} disabled={finishing}>
-                    {finishing ? (
-                      <>
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                        Generating report…
-                      </>
-                    ) : (
-                      "Generate report"
-                    )}
+                  {starting ? (
+                    <>
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                      Starting…
+                    </>
+                  ) : (
+                    <>
+                      Begin interview
+                      <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+                {canResume ? (
+                  <Button
+                    variant="secondary"
+                    className={btnSecondary}
+                    disabled={starting || !cameraReady}
+                    onClick={resumeInterview}
+                  >
+                    Resume previous
                   </Button>
-                  <ButtonLink href="/report" variant="secondary">
-                    Go to report page
-                  </ButtonLink>
+                ) : null}
+                {!cameraReady ? (
+                  <Button
+                    variant="secondary"
+                    className={btnSecondary}
+                    disabled={starting}
+                    onClick={() => cameraRef.current?.retry()}
+                  >
+                    Retry camera
+                  </Button>
+                ) : null}
+              </div>
+              {!cameraReady ? (
+                <p className="mt-4 text-xs text-[#737373]">
+                  {cameraError
+                    ? `${cameraError} Allow access, then retry.`
+                    : "Waiting for camera permission… Begin stays disabled until the camera is ready."}
+                </p>
+              ) : (
+                <p className="mt-4 text-xs font-medium text-[#1C1C1C]">
+                  Camera ready · preview will appear after you begin
+                </p>
+              )}
+              <p className="mt-2 text-xs text-[#A3A3A3]">
+                Demo profile is seeded (Jordan Lee → Paytm). If the mic fails, type and Submit.
+                {source ? ` · Last source: ${source}` : null}
+              </p>
+            </div>
+          ) : null}
+
+          {phase === "complete" || (phase === "live" && !currentQuestion) ? (
+            <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center py-10 text-center">
+              <InterviewAgent speaking={false} status="Interview complete" />
+              <p className="mt-6 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#F4C430]">
+                {timedOut ? "Time expired" : "Interview complete"}
+              </p>
+              <h2 className="mt-3 font-display text-2xl font-semibold text-[#1C1C1C] sm:text-3xl">
+                Ready to generate your evidence-based report
+              </h2>
+              {(skippedIds.length > 0 || incompleteCounts().notAttempted > 0) && (
+                <p className="mx-auto mt-4 max-w-md text-sm text-[#B45309]">
+                  {incompleteCounts().skipped} skipped · {incompleteCounts().notAttempted}{" "}
+                  not attempted — you can still submit a report.
+                </p>
+              )}
+              <div className="mt-8 flex flex-wrap justify-center gap-3">
+                <Button
+                  className={btnPrimary}
+                  onClick={requestFinish}
+                  disabled={finishing}
+                >
+                  {finishing ? (
+                    <>
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                      Generating report…
+                    </>
+                  ) : (
+                    "Submit / Generate report"
+                  )}
+                </Button>
+                <ButtonLink href="/report" variant="secondary" className={btnSecondary}>
+                  Go to report page
+                </ButtonLink>
+              </div>
+            </div>
+          ) : null}
+
+          {phase === "live" && currentQuestion ? (
+            <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
+              <div className="pt-2 pr-0 sm:pt-1 lg:pt-2">
+                <h2 className="text-center font-display text-[1.45rem] font-semibold leading-snug tracking-tight text-[#1C1C1C] sm:text-2xl md:text-[1.85rem] md:leading-[1.35]">
+                  {currentQuestion.question}
+                </h2>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs text-[#737373]">
+                  <span>
+                    Question {progressIndex + 1} of {Math.max(questions.length, 1)}
+                  </span>
+                  <span aria-hidden>·</span>
+                  <span className="capitalize">{currentQuestion.category}</span>
+                  <span aria-hidden>·</span>
+                  <span className="capitalize">{currentQuestion.difficulty}</span>
                 </div>
               </div>
-            ) : (
-              <>
+
+              <div className="mt-8 flex flex-1 flex-col items-center">
                 <InterviewAgent
                   speaking={speakingQuestion}
                   listening={listening}
+                  evaluating={submitting}
+                  status={agentStatus}
                 />
 
-                <div className="mt-8">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Eyebrow>{currentQuestion.category}</Eyebrow>
-                    <span className="rounded-full bg-navy-700 px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-ink-300">
-                      {currentQuestion.difficulty}
-                    </span>
-                    {listening ? (
-                      <span className="rounded-full bg-gold-500/15 px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-gold-400">
-                        Listening to you
-                      </span>
-                    ) : null}
-                  </div>
-                  <h2 className="mt-4 font-display text-xl font-semibold leading-snug text-ink-50 sm:text-2xl">
-                    {currentQuestion.question}
-                  </h2>
-                </div>
-
                 {evaluation ? (
-                  <div className="mt-6 rounded-2xl border border-gold-500/20 bg-navy-900/60 p-4">
-                    <Eyebrow>Latest evaluation</Eyebrow>
-                    <p className="mt-2 text-sm text-ink-100">
-                      <span className="font-semibold text-gold-400">
-                        {evaluation.quality}
-                      </span>
+                  <div className="mt-6 w-full max-w-xl rounded-2xl border border-[#EAE5D9] bg-white px-4 py-3 text-left shadow-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F4C430]">
+                      Latest evaluation
+                    </p>
+                    <p className="mt-2 text-sm text-[#1C1C1C]">
+                      <span className="font-semibold">{evaluation.quality}</span>
                       {" · "}
                       score {evaluation.score}/100
                       {nextAction ? ` · ${nextAction}` : ""}
                     </p>
-                    <p className="mt-2 text-sm text-ink-300">{evaluation.feedback}</p>
+                    <p className="mt-1 text-sm text-[#737373]">{evaluation.feedback}</p>
                   </div>
                 ) : null}
 
-                <div className="mt-6 rounded-[22px] border border-gold-500/15 bg-navy-900/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-ink-400">
+                <div className="mt-6 w-full max-w-xl rounded-2xl border border-[#EAE5D9] bg-white px-4 py-4 text-left shadow-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#737373]">
                     Live transcript
                   </p>
-                  <p className="mt-3 min-h-16 whitespace-pre-wrap text-sm leading-relaxed text-ink-100">
+                  <p className="mt-3 min-h-14 whitespace-pre-wrap text-sm leading-relaxed text-[#1C1C1C]">
                     {answer ||
                       (listening
                         ? "I'm listening… speak naturally, then pause when finished."
@@ -759,85 +949,194 @@ export function InterviewPanel() {
                     <textarea
                       value={answer}
                       onChange={(event) => {
+                        manualTypingRef.current = true;
                         setAnswer(event.target.value);
                         answerRef.current = event.target.value;
                       }}
-                      rows={4}
-                      disabled={submitting || listening}
-                      placeholder="Optional typed answer…"
-                      className="mt-3 w-full resize-y rounded-xl border border-gold-500/10 bg-navy-950/60 px-3 py-3 text-sm text-ink-100 outline-none ring-gold-500/40 placeholder:text-ink-400 focus:ring-2"
+                      onFocus={() => {
+                        setShowTextInput(true);
+                      }}
+                      rows={3}
+                      disabled={submitting}
+                      placeholder={
+                        listening
+                          ? "Type here anytime — mic stays open…"
+                          : "Type your answer here anytime…"
+                      }
+                      className="mt-3 w-full resize-y rounded-xl border border-[#EAE5D9] bg-[#FFFDF8] px-3 py-3 text-sm text-[#1C1C1C] outline-none placeholder:text-[#A3A3A3] focus:border-[#F4C430] focus:ring-2 focus:ring-[rgba(244,196,48,0.25)] disabled:opacity-60"
                     />
                   ) : (
                     <button
                       type="button"
-                      className="mt-3 inline-flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-ink-400 hover:text-gold-400"
+                      className="mt-3 inline-flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-[#737373] hover:text-[#1C1C1C]"
                       onClick={() => setShowTextInput(true)}
                     >
                       <Keyboard className="h-3.5 w-3.5" />
-                      Optional: type instead
+                      Type your answer
                     </button>
                   )}
 
                   {!speechSupported ? (
-                    <p className="mt-3 text-xs text-gold-400">
+                    <p className="mt-3 text-xs text-[#B45309]">
                       Speech recognition unavailable — type your answer, then Submit.
                     </p>
                   ) : null}
                 </div>
-              </>
-            )}
-          </Surface>
+              </div>
+            </div>
+          ) : null}
         </div>
-      ) : null}
 
-      {phase === "live" && currentQuestion ? (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gold-500/20 bg-navy-950/95 px-4 py-3 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-3">
-            <Button variant="secondary" onClick={goBack} disabled={!canGoBack || submitting}>
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Button>
-            <Button
-              onClick={toggleListening}
-              disabled={submitting || speakingQuestion}
-              variant={listening ? "secondary" : "primary"}
-            >
-              {listening ? (
-                <>
-                  <MicOff className="h-4 w-4" />
-                  I&apos;m done speaking
-                </>
-              ) : (
-                <>
-                  <Mic className="h-4 w-4" />
-                  Speak again
-                </>
-              )}
-            </Button>
-            <Button variant="secondary" onClick={replayQuestion} disabled={submitting || listening}>
-              <Volume2 className="h-4 w-4" />
-              Replay
-            </Button>
-            <Button onClick={() => void submitCurrentAnswer()} disabled={!canSubmit}>
-              {submitting ? (
-                <>
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                  Analyzing…
-                </>
-              ) : (
-                <>
-                  <Send className="h-4 w-4" />
-                  Submit
-                </>
-              )}
-            </Button>
-            <Button onClick={goNext} disabled={!canGoNext || submitting || listening}>
-              Next
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+        {phase === "live" && currentQuestion ? (
+          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#EAE5D9] bg-[#FFFDF8]/95 px-4 py-3 backdrop-blur-md lg:left-[280px]">
+            <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-center gap-2 sm:gap-3">
+              <Button
+                variant="secondary"
+                className={btnSecondary}
+                onClick={goBack}
+                disabled={!canGoBack || submitting}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+              <Button
+                className={listening ? btnSecondary : btnPrimary}
+                variant={listening ? "secondary" : "primary"}
+                onClick={toggleListening}
+                disabled={submitting || speakingQuestion}
+              >
+                {listening ? (
+                  <>
+                    <MicOff className="h-4 w-4" />
+                    Stop recording
+                  </>
+                ) : (
+                  <>
+                    <Mic className="h-4 w-4" />
+                    Start answering
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="secondary"
+                className={btnSecondary}
+                onClick={replayQuestion}
+                disabled={submitting || listening}
+              >
+                <Volume2 className="h-4 w-4" />
+                Replay
+              </Button>
+              <Button
+                className={btnPrimary}
+                onClick={() => void submitCurrentAnswer()}
+                disabled={!canSubmit}
+              >
+                {submitting ? (
+                  <>
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                    Analyzing…
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" />
+                    Submit answer
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="secondary"
+                className="!border-[#B45309]/40 !bg-white !text-[#B45309] !shadow-none hover:!bg-[rgba(180,83,9,0.08)] disabled:!opacity-50"
+                onClick={skipQuestion}
+                disabled={submitting || listening || finishing}
+              >
+                <Flag className="h-4 w-4" />
+                Skip
+              </Button>
+              <Button
+                className={btnPrimary}
+                onClick={goNext}
+                disabled={!canGoNext || submitting || listening}
+              >
+                Continue
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+
+        {showFinishConfirm ? (
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-[rgba(28,28,28,0.55)] p-4"
+            onClick={() => !finishing && setShowFinishConfirm(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-3xl border border-[#EAE5D9] bg-white p-6 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="finish-confirm-title"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#F4C430]">
+                    Before you submit
+                  </p>
+                  <h3
+                    id="finish-confirm-title"
+                    className="mt-2 font-display text-xl font-semibold text-[#1C1C1C]"
+                  >
+                    Incomplete questions found
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-full border border-[#EAE5D9] p-2 text-[#1C1C1C] hover:bg-[#FFFDF8]"
+                  onClick={() => setShowFinishConfirm(false)}
+                  disabled={finishing}
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="mt-4 text-sm leading-relaxed text-[#737373]">
+                You have{" "}
+                <span className="font-semibold text-[#1C1C1C]">
+                  {incompleteCounts().skipped} skipped
+                </span>{" "}
+                and{" "}
+                <span className="font-semibold text-[#1C1C1C]">
+                  {incompleteCounts().notAttempted} not attempted
+                </span>
+                . You can still submit and generate a report from the answers you did provide.
+              </p>
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <Button
+                  variant="secondary"
+                  className={btnSecondary}
+                  onClick={() => setShowFinishConfirm(false)}
+                  disabled={finishing}
+                >
+                  Go back
+                </Button>
+                <Button
+                  className={btnPrimary}
+                  onClick={() => void onFinish()}
+                  disabled={finishing}
+                >
+                  {finishing ? (
+                    <>
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                      Submitting…
+                    </>
+                  ) : (
+                    "Submit anyways"
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

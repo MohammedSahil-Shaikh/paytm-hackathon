@@ -44,32 +44,67 @@ export const interviewStartInputSchema = z.object({
   jobDescription: z.string().max(20_000).optional().default(""),
 });
 
-export const interviewQuestionSchema = z.object({
-  id: z.string().min(1),
-  question: z.string().min(8),
-  category: z.string().min(1),
-  difficulty: z.enum(["easy", "medium", "hard"]),
-  reasoning: z.string().min(1),
-  sourceIds: z.array(z.string()).optional(),
-});
+const difficultySchema = z
+  .string()
+  .transform((value) => value.toLowerCase())
+  .pipe(z.enum(["easy", "medium", "hard"]))
+  .catch("medium");
+
+export const interviewQuestionSchema = z
+  .object({
+    id: z.string().optional(),
+    question: z.string().min(8),
+    category: z.string().min(1).catch("technical"),
+    difficulty: difficultySchema,
+    reasoning: z.string().min(1).catch("Role-specific interview probe."),
+    sourceIds: z.array(z.string()).optional(),
+  })
+  .transform((question) => {
+    const normalized: {
+      id: string;
+      question: string;
+      category: string;
+      difficulty: "easy" | "medium" | "hard";
+      reasoning: string;
+      sourceIds?: string[];
+    } = {
+      id: question.id && question.id.length > 0 ? question.id : `q_${crypto.randomUUID().slice(0, 8)}`,
+      question: question.question,
+      category: question.category,
+      difficulty: question.difficulty,
+      reasoning: question.reasoning,
+    };
+    if (question.sourceIds) normalized.sourceIds = question.sourceIds;
+    return normalized;
+  });
 
 export const interviewQuestionsAiSchema = z.object({
-  questions: z.array(interviewQuestionSchema).length(5),
+  questions: z.array(interviewQuestionSchema).min(3).max(8),
 });
 
+const qualitySchema = z
+  .string()
+  .transform((value) => value.toLowerCase())
+  .pipe(z.enum(["strong", "good", "partial", "weak"]))
+  .catch("partial");
+
 export const answerEvaluationSchema = z.object({
-  quality: z.enum(["strong", "good", "partial", "weak"]),
-  score: z.number().min(0).max(100),
+  quality: qualitySchema,
+  score: z.coerce.number().min(0).max(100),
   feedback: z.string().min(1),
-  strengths: z.array(z.string()),
-  gaps: z.array(z.string()),
-  topicsToProbe: z.array(z.string()),
+  strengths: z.array(z.string()).catch([]),
+  gaps: z.array(z.string()).catch([]),
+  topicsToProbe: z.array(z.string()).catch([]),
 });
 
 export const evaluationAiSchema = z.object({
   evaluation: answerEvaluationSchema,
-  nextAction: z.enum(["follow_up", "next_question", "complete"]),
-  followUpQuestion: interviewQuestionSchema.nullable(),
+  nextAction: z
+    .string()
+    .transform((value) => value.toLowerCase().replace(/-/g, "_"))
+    .pipe(z.enum(["follow_up", "next_question", "complete"]))
+    .catch("next_question"),
+  followUpQuestion: interviewQuestionSchema.nullable().optional().catch(null),
 });
 
 export const interviewAnswerInputSchema = z.object({

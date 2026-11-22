@@ -60,7 +60,7 @@ export function SetupForm() {
   }
 
   const fieldClass =
-    "mt-2 w-full rounded-xl border border-gold-500/15 bg-navy-950/50 px-3 py-2.5 text-sm text-ink-50 outline-none focus:ring-2 focus:ring-gold-500/40";
+    "mt-2 w-full rounded-xl border border-navy-600 bg-[#FFFDF8] px-3 py-2.5 text-sm text-ink-50 outline-none focus:ring-2 focus:ring-gold-500/35";
 
   return (
     <Surface>
@@ -133,7 +133,7 @@ export function SetupForm() {
         </label>
 
         {error ? (
-          <p className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
           </p>
         ) : null}

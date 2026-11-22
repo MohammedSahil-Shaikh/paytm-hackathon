@@ -1,19 +1,23 @@
-import { NextResponse } from "next/server";
 import { generateOnboardingPlan } from "@/lib/ai/onboarding";
-import type { CandidateProfile, InterviewReport, ResearchData } from "@/types";
+import { jsonError, jsonSuccess, validationError } from "@/lib/ai/utils";
 
+/**
+ * Member 1 — POST /api/onboarding
+ */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      candidate: CandidateProfile;
-      report: InterviewReport;
-      research: ResearchData;
-    };
-    if (!body?.candidate || !body.report || !body.research) {
-      return NextResponse.json({ error: "candidate, report, and research are required" }, { status: 400 });
+    const body = await request.json();
+    const data = await generateOnboardingPlan(body);
+    return jsonSuccess(data);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return validationError("Malformed JSON body");
     }
-    return NextResponse.json(await generateOnboardingPlan(body));
-  } catch {
-    return NextResponse.json({ error: "Invalid onboarding request" }, { status: 400 });
+    const message =
+      error instanceof Error ? error.message : "Failed to generate onboarding";
+    if (message.toLowerCase().includes("invalid")) {
+      return validationError(message);
+    }
+    return jsonError("ONBOARDING_ERROR", message, 500);
   }
 }

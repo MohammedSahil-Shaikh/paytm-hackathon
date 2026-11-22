@@ -13,22 +13,23 @@ export default {
         foreground: "var(--foreground)",
         muted: "var(--muted)",
         navy: {
-          950: "#050d1a",
-          900: "#0a1628",
-          800: "#10233f",
-          700: "#183456",
-          600: "#234872",
+          950: "#1C1C1C",
+          900: "#F5F2EA",
+          800: "#FFFFFF",
+          700: "#FFF8E8",
+          600: "#EAE5D9",
         },
         gold: {
-          400: "#ffd54a",
-          500: "#f5c518",
-          600: "#d4a017",
+          400: "#E5B94C",
+          500: "#F4C430",
+          600: "#C9A227",
         },
         ink: {
-          50: "#f7f4ea",
-          100: "#efe9d6",
-          300: "#b8c0d0",
-          400: "#8fa0b8",
+          50: "#1C1C1C",
+          100: "#2A2A2A",
+          200: "#404040",
+          300: "#737373",
+          400: "#A3A3A3",
         },
       },
       fontFamily: {
@@ -36,8 +37,8 @@ export default {
         display: ["var(--font-sora)", "sans-serif"],
       },
       boxShadow: {
-        glow: "0 0 0 1px rgba(245,197,24,0.18), 0 24px 60px rgba(0,0,0,0.35)",
-        soft: "0 18px 40px rgba(5,13,26,0.45)",
+        glow: "0 1px 0 rgba(28,28,28,0.04), 0 16px 40px rgba(28,28,28,0.06)",
+        soft: "0 12px 30px rgba(28,28,28,0.08)",
       },
       keyframes: {
         shimmer: {

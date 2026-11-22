@@ -24,6 +24,8 @@ export type JourneyState = {
   interviewSource: "ai" | "mock" | null;
   interviewStartedAt: string | null;
   proctorWarnings: number;
+  skippedQuestionIds: string[];
+  answeredQuestionIds: string[];
   report: InterviewReport | null;
   onboardingPlan: OnboardingPlan | null;
 };
@@ -42,6 +44,8 @@ const emptyState = (): JourneyState => ({
   interviewSource: null,
   interviewStartedAt: null,
   proctorWarnings: 0,
+  skippedQuestionIds: [],
+  answeredQuestionIds: [],
   report: null,
   onboardingPlan: null,
 });
@@ -72,12 +76,19 @@ export function readJourney(): JourneyState {
 
 export function writeJourney(patch: Partial<JourneyState>): JourneyState {
   const next = { ...readJourney(), ...patch };
-  window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  if (typeof window !== "undefined") {
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  }
   return next;
 }
 
 export function clearJourney(): void {
+  if (typeof window === "undefined") return;
   window.sessionStorage.removeItem(STORAGE_KEY);
+}
+
+export function hasCandidate(): boolean {
+  return Boolean(readJourney().candidate?.name && readJourney().candidate?.targetCompany);
 }
 
 export function ensureCandidate(): CandidateProfile {
@@ -88,9 +99,10 @@ export function ensureCandidate(): CandidateProfile {
   return candidate;
 }
 
+/** Prefer saved research; only synthesize a thin stub when interview must proceed. */
 export function ensureResearch(candidate?: CandidateProfile): ResearchData {
   const state = readJourney();
-  if (state.research) return state.research;
+  if (state.research?.company && state.research?.role) return state.research;
   const profile = candidate || ensureCandidate();
   const research: ResearchData = {
     company: profile.targetCompany,
@@ -103,6 +115,23 @@ export function ensureResearch(candidate?: CandidateProfile): ResearchData {
   };
   writeJourney({ research });
   return research;
+}
+
+export function resetInterviewProgress(): JourneyState {
+  return writeJourney({
+    sessionId: null,
+    questions: [],
+    currentQuestion: null,
+    currentQuestionIndex: 0,
+    lastEvaluation: null,
+    interviewComplete: false,
+    interviewSource: null,
+    interviewStartedAt: null,
+    proctorWarnings: 0,
+    skippedQuestionIds: [],
+    answeredQuestionIds: [],
+    report: null,
+  });
 }
 
 export function saveCandidateRecord(record: CandidateRecord, jobDescription: string) {

@@ -1,15 +1,26 @@
-import { NextResponse } from "next/server";
 import { startInterview } from "@/lib/ai/interview";
-import type { InterviewStartRequest } from "@/types";
+import { jsonError, jsonSuccess, validationError } from "@/lib/ai/utils";
 
+/**
+ * Member 1 — POST /api/interview/start
+ */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as InterviewStartRequest;
-    if (!body?.candidate?.name || !body.candidate.targetCompany || !body.candidate.targetRole || !body.research) {
-      return NextResponse.json({ error: "candidate and research context are required" }, { status: 400 });
+    const body = await request.json();
+    const data = await startInterview(body);
+    return jsonSuccess(data);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return validationError("Malformed JSON body");
     }
-    return NextResponse.json(await startInterview(body));
-  } catch {
-    return NextResponse.json({ error: "Invalid interview start request" }, { status: 400 });
+    const message =
+      error instanceof Error ? error.message : "Failed to start interview";
+    if (
+      message.toLowerCase().includes("invalid") ||
+      message.toLowerCase().includes("required")
+    ) {
+      return validationError(message);
+    }
+    return jsonError("INTERVIEW_START_ERROR", message, 500);
   }
 }

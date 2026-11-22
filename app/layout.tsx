@@ -24,9 +24,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${plusJakarta.variable} ${sora.variable} font-[family-name:var(--font-plus-jakarta)] antialiased`}
+        suppressHydrationWarning
       >
         {children}
       </body>

@@ -3,10 +3,10 @@ import { cn } from "@/lib/utils";
 
 const variants = {
   primary:
-    "bg-gold-500 text-navy-950 hover:bg-gold-400 shadow-[0_10px_30px_rgba(245,197,24,0.28)] disabled:cursor-not-allowed disabled:opacity-50",
+    "bg-gold-500 text-navy-950 hover:bg-gold-400 shadow-[0_8px_24px_rgba(244,196,48,0.28)] disabled:cursor-not-allowed disabled:opacity-50",
   secondary:
-    "border border-gold-500/30 bg-navy-800/50 text-ink-50 hover:border-gold-500/60 hover:bg-navy-700/70 disabled:cursor-not-allowed disabled:opacity-50",
-  ghost: "text-ink-300 hover:text-gold-400 disabled:cursor-not-allowed disabled:opacity-50",
+    "border border-navy-600 bg-white text-ink-50 hover:border-gold-500/50 hover:bg-navy-900 disabled:cursor-not-allowed disabled:opacity-50",
+  ghost: "text-ink-300 hover:text-ink-50 disabled:cursor-not-allowed disabled:opacity-50",
 } as const;
 
 type Variant = keyof typeof variants;

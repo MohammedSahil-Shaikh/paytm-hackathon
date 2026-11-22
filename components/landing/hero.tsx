@@ -3,11 +3,10 @@ import { ButtonLink } from "@/components/ui/button";
 
 export function LandingHero() {
   return (
-    <main className="relative min-h-screen overflow-hidden bg-grid-navy">
+    <main className="relative min-h-screen overflow-hidden">
       <div className="pointer-events-none absolute inset-0">
-        <div className="animate-pulse-glow absolute -left-24 top-16 h-72 w-72 rounded-full bg-gold-500/20 blur-3xl" />
-        <div className="animate-drift absolute right-[-4rem] top-24 h-96 w-96 rounded-full bg-navy-600/50 blur-3xl" />
-        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-navy-950 to-transparent" />
+        <div className="animate-pulse-glow absolute -left-24 top-16 h-72 w-72 rounded-full bg-gold-500/25 blur-3xl" />
+        <div className="animate-drift absolute right-[-4rem] top-24 h-96 w-96 rounded-full bg-gold-400/15 blur-3xl" />
       </div>
 
       <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
@@ -37,16 +36,17 @@ export function LandingHero() {
           Your journey starts before Day One.
         </h1>
         <p className="animate-fade-up-delay-2 mt-6 max-w-xl text-base leading-relaxed text-ink-300 sm:text-lg">
-          Research the company, run an adaptive AI interview, and carry those
-          insights into a personalized 30/60/90 onboarding plan.
+          Company research → adaptive voice interview → evidence report → hiring
+          transition → personalized 30/60/90 roadmap → HR assistant. One continuous
+          DayZero journey before Day One.
         </p>
         <div className="animate-fade-up-delay-2 mt-10 flex flex-wrap items-center gap-4">
           <ButtonLink href="/setup">
             Start Your Journey
             <ArrowRight className="h-4 w-4" />
           </ButtonLink>
-          <ButtonLink href="/research" variant="secondary">
-            Explore the flow
+          <ButtonLink href="/setup" variant="secondary">
+            Begin at setup
           </ButtonLink>
         </div>
       </section>

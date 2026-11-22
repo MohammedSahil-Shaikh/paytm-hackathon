@@ -318,6 +318,124 @@ export function buildFallbackOnboarding(
   };
 }
 
+function extractBullets(section: string | undefined): string[] {
+  if (!section?.trim()) return [];
+  return section
+    .split(/\n|;/)
+    .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function formatContextAsMarkdown(onboarding: string, question: string): string {
+  const insightsMatch = onboarding.match(/Insights:\s*([\s\S]*?)(?:\n\s*Requirements:|$)/i);
+  const requirementsMatch = onboarding.match(/Requirements:\s*([\s\S]*?)(?:\n\s*[A-Z][a-z]+:|$)/i);
+  const strengthsMatch = onboarding.match(/Strengths:\s*([\s\S]*?)(?:\n\s*Gaps:|$)/i);
+  const gapsMatch = onboarding.match(/Gaps:\s*([\s\S]*?)(?:\n\s*Recommendations:|$)/i);
+  const recommendationsMatch = onboarding.match(/Recommendations:\s*([\s\S]*?)$/i);
+  const overviewMatch = onboarding.match(/Overview:\s*([\s\S]*?)(?:\n\s*Insights:|$)/i);
+  const companyLine =
+    onboarding.match(/Company research for (.+)/i)?.[1]?.trim() ||
+    onboarding.match(/Candidate targeting (.+)/i)?.[1]?.trim() ||
+    "your role";
+
+  const insights = extractBullets(insightsMatch?.[1]);
+  const requirements = extractBullets(requirementsMatch?.[1]);
+  const strengths = extractBullets(strengthsMatch?.[1]);
+  const gaps = extractBullets(gapsMatch?.[1]);
+  const recommendations = extractBullets(recommendationsMatch?.[1]);
+  const overview = overviewMatch?.[1]?.trim();
+
+  const q = question.toLowerCase();
+  const parts: string[] = [];
+
+  if (q.includes("30") || q.includes("focus") || q.includes("onboarding") || q.includes("roadmap")) {
+    parts.push(`## Days 1–30 focus`);
+    parts.push("");
+    parts.push(`For **${companyLine}**, start with the highest-leverage fundamentals from your DayZero context.`);
+    parts.push("");
+    if (insights.length) {
+      parts.push("### Priority insights");
+      parts.push(...insights.map((item) => `- ${item}`));
+      parts.push("");
+    }
+    if (requirements.length) {
+      parts.push("### Requirements to practice");
+      parts.push(...requirements.map((item) => `- ${item}`));
+      parts.push("");
+    }
+    if (recommendations.length) {
+      parts.push("### Recommended next steps");
+      parts.push(...recommendations.map((item) => `- ${item}`));
+    } else {
+      parts.push("### Recommended next steps");
+      parts.push("- Map your first 2 weeks around one production-facing service or API area");
+      parts.push("- Schedule a deep-dive with your mentor on local architecture and ownership boundaries");
+      parts.push("- Keep a weekly checklist of reliability, testing, and delivery habits");
+    }
+    return parts.join("\n");
+  }
+
+  if (q.includes("gap") || q.includes("skill")) {
+    parts.push("## Skill priorities");
+    parts.push("");
+    parts.push(`Based on your DayZero context for **${companyLine}**:`);
+    parts.push("");
+    if (gaps.length) {
+      parts.push("### Gaps to close first");
+      parts.push(...gaps.map((item) => `- ${item}`));
+      parts.push("");
+    }
+    if (strengths.length) {
+      parts.push("### Strengths to lean on");
+      parts.push(...strengths.map((item) => `- ${item}`));
+      parts.push("");
+    }
+    if (requirements.length) {
+      parts.push("### Role requirements to emphasize");
+      parts.push(...requirements.map((item) => `- ${item}`));
+    }
+    if (!gaps.length && !strengths.length && !requirements.length) {
+      parts.push("- Review your interview report gaps once available");
+      parts.push("- Align practice with the top role requirements from research");
+    }
+    return parts.join("\n");
+  }
+
+  parts.push("## From your DayZero context");
+  parts.push("");
+  parts.push(`Here is a structured read of what I have for **${companyLine}**.`);
+  parts.push("");
+  if (overview) {
+    parts.push("### Overview");
+    parts.push(overview.slice(0, 400));
+    parts.push("");
+  }
+  if (insights.length) {
+    parts.push("### Insights");
+    parts.push(...insights.map((item) => `- ${item}`));
+    parts.push("");
+  }
+  if (requirements.length) {
+    parts.push("### Requirements");
+    parts.push(...requirements.map((item) => `- ${item}`));
+    parts.push("");
+  }
+  if (gaps.length) {
+    parts.push("### Gaps");
+    parts.push(...gaps.map((item) => `- ${item}`));
+    parts.push("");
+  }
+  if (recommendations.length) {
+    parts.push("### Recommendations");
+    parts.push(...recommendations.map((item) => `- ${item}`));
+  }
+  if (parts.length <= 4) {
+    parts.push("- Continue Setup → Research → Interview so I can give richer, verified guidance");
+  }
+  return parts.join("\n");
+}
+
 export function buildFallbackHrResponse(input: {
   question: string;
   policyContext?: string;
@@ -329,23 +447,83 @@ export function buildFallbackHrResponse(input: {
 
   if (policy) {
     return {
-      answer: `Based on the provided policy context: ${policy.slice(0, 500)}`,
+      answer: [
+        "## Policy context",
+        "",
+        "Based on the verified policy text you provided:",
+        "",
+        policy.slice(0, 700),
+      ].join("\n"),
       sources: ["policy"],
       verified: true,
     };
   }
 
-  if (onboarding && (q.includes("roadmap") || q.includes("onboarding") || q.includes("task"))) {
+  if (
+    onboarding &&
+    (q.includes("roadmap") ||
+      q.includes("onboarding") ||
+      q.includes("task") ||
+      q.includes("focus") ||
+      q.includes("gap") ||
+      q.includes("skill") ||
+      q.includes("30") ||
+      q.includes("60") ||
+      q.includes("90"))
+  ) {
     return {
-      answer: `Based on your onboarding context: ${onboarding.slice(0, 500)}`,
+      answer: formatContextAsMarkdown(onboarding, input.question),
+      sources: ["onboarding"],
+      verified: true,
+    };
+  }
+
+  if (
+    q.includes("leave") ||
+    q.includes("policy") ||
+    q.includes("salary") ||
+    q.includes("benefit") ||
+    q.includes("pto") ||
+    q.includes("holiday")
+  ) {
+    return {
+      answer: [
+        "## No verified policy on file",
+        "",
+        "I do not have a verified company leave/policy document in context.",
+        "",
+        "### What I will not invent",
+        "- Leave / PTO rules",
+        "- Salary or benefits details",
+        "- Work schedule / holiday calendars",
+        "",
+        "### What to do next",
+        "- Ask your HR team for the official policy",
+        "- Or add policy context so I can answer with verification",
+      ].join("\n"),
+      sources: [],
+      verified: false,
+    };
+  }
+
+  if (onboarding) {
+    return {
+      answer: formatContextAsMarkdown(onboarding, input.question),
       sources: ["onboarding"],
       verified: true,
     };
   }
 
   return {
-    answer:
-      "I do not have verified company policy information for that in the provided context, so I cannot invent leave, salary, benefits, or schedule details.",
+    answer: [
+      "## How I can help",
+      "",
+      "I can help with onboarding focus, interview gaps, and roadmap priorities once those are in your DayZero journey.",
+      "",
+      "### For policy questions",
+      "- I need verified policy context",
+      "- I will not invent leave, salary, benefits, or schedule details",
+    ].join("\n"),
     sources: [],
     verified: false,
   };

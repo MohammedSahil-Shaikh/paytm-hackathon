@@ -6,7 +6,12 @@ import { LoaderCircle } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Surface, Eyebrow } from "@/components/ui/surface";
 import { ApiClientError, finishInterview, generateOnboarding } from "@/lib/client/api";
-import { ensureCandidate, ensureResearch, readJourney, writeJourney } from "@/lib/client/journey-store";
+import {
+  ensureCandidate,
+  ensureResearch,
+  readJourney,
+  writeJourney,
+} from "@/lib/client/journey-store";
 import type { InterviewReport } from "@/types";
 
 export function ReportPanel() {
@@ -27,7 +32,7 @@ export function ReportPanel() {
           return;
         }
         if (!journey.sessionId) {
-          setError("No interview session found. Start an interview first.");
+          setError("No interview session found. Finish an interview first.");
           return;
         }
         const data = await finishInterview(journey.sessionId);
@@ -38,13 +43,20 @@ export function ReportPanel() {
           interviewSource: data.source,
         });
       } catch (err) {
-        setError(
+        const message =
           err instanceof ApiClientError
             ? err.message
             : err instanceof Error
               ? err.message
-              : "Failed to load report",
-        );
+              : "Failed to load report";
+        if (message.toLowerCase().includes("not found")) {
+          writeJourney({ sessionId: null, interviewStartedAt: null });
+          setError(
+            "Interview session expired (server restarted). Go back to Interview and begin again, then generate the report from there.",
+          );
+        } else {
+          setError(message);
+        }
       } finally {
         setLoading(false);
       }
@@ -57,14 +69,16 @@ export function ReportPanel() {
     setGeneratingPlan(true);
     setError(null);
     try {
-      const candidate = ensureCandidate();
-      const research = ensureResearch(candidate);
-      const data = await generateOnboarding({
-        candidate,
-        research,
-        report,
-      });
-      writeJourney({ onboardingPlan: data.plan, candidate, research });
+      if (!readJourney().onboardingPlan) {
+        const candidate = ensureCandidate();
+        const research = ensureResearch(candidate);
+        const data = await generateOnboarding({
+          candidate,
+          research,
+          report,
+        });
+        writeJourney({ onboardingPlan: data.plan, candidate, research });
+      }
       router.push("/onboarding");
     } catch (err) {
       setError(
@@ -74,6 +88,7 @@ export function ReportPanel() {
             ? err.message
             : "Failed to generate onboarding",
       );
+      router.push("/onboarding");
     } finally {
       setGeneratingPlan(false);
     }
@@ -91,7 +106,7 @@ export function ReportPanel() {
   if (error && !report) {
     return (
       <Surface>
-        <p className="text-sm text-red-200">{error}</p>
+        <p className="text-sm text-red-700">{error}</p>
         <div className="mt-4 flex gap-3">
           <ButtonLink href="/interview" variant="secondary">
             Back to interview
@@ -106,7 +121,7 @@ export function ReportPanel() {
   return (
     <div className="space-y-6">
       {error ? (
-        <div className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
@@ -149,7 +164,7 @@ export function ReportPanel() {
           {report.skillAnalysis.map((skill) => (
             <div
               key={`${skill.skill}-${skill.level}`}
-              className="rounded-2xl border border-gold-500/10 bg-navy-900/50 p-4"
+              className="rounded-2xl border border-navy-600 bg-navy-900 p-4"
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="font-medium text-ink-50">{skill.skill}</p>
@@ -168,7 +183,7 @@ export function ReportPanel() {
             {report.answerFeedback.map((item) => (
               <div
                 key={item.question}
-                className="rounded-2xl border border-gold-500/10 bg-navy-900/40 p-4"
+                className="rounded-2xl border border-navy-600 bg-navy-900 p-4"
               >
                 <p className="text-sm font-medium text-ink-50">{item.question}</p>
                 <p className="mt-2 text-sm text-ink-300">{item.feedback}</p>

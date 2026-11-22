@@ -69,7 +69,7 @@ export function RoadmapPanel() {
   if (error || !plan) {
     return (
       <Surface>
-        <p className="text-sm text-red-200">{error || "No roadmap available"}</p>
+        <p className="text-sm text-red-700">{error || "No roadmap available"}</p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button variant="secondary" onClick={() => void loadPlan()}>
             Retry

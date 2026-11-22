@@ -6,44 +6,89 @@ import { cn } from "@/lib/utils";
 type InterviewAgentProps = {
   speaking?: boolean;
   listening?: boolean;
+  evaluating?: boolean;
+  status?: string;
   label?: string;
 };
+
+const RING_BARS = 36;
 
 export function InterviewAgent({
   speaking = false,
   listening = false,
+  evaluating = false,
+  status,
   label = "DayZero Interview Agent",
 }: InterviewAgentProps) {
+  const resolved =
+    status ||
+    (evaluating
+      ? "Evaluating answer"
+      : speaking
+        ? "Speaking"
+        : listening
+          ? "Listening"
+          : "Ready");
+
+  const active = speaking || listening || evaluating;
+
   return (
     <div className="flex flex-col items-center text-center">
-      <div className="relative">
+      <div className="relative flex h-36 w-36 items-center justify-center sm:h-40 sm:w-40">
+        {/* Circular border wave — bars sit on the robot ring */}
         {speaking ? (
-          <>
-            <span className="absolute inset-0 animate-ping rounded-full bg-gold-500/25" />
-            <span className="absolute -inset-3 rounded-full border border-gold-500/35" />
-          </>
+          <div className="pointer-events-none absolute inset-0" aria-hidden>
+            {Array.from({ length: RING_BARS }).map((_, index) => {
+              const angle = (360 / RING_BARS) * index;
+              const delay = `${(index % 12) * 0.05}s`;
+              const duration = `${0.55 + (index % 5) * 0.08}s`;
+              return (
+                <span
+                  key={index}
+                  className="voice-ring-bar absolute left-1/2 top-1/2"
+                  style={{
+                    transform: `rotate(${angle}deg) translateY(-66px)`,
+                    animationDelay: delay,
+                    animationDuration: duration,
+                  }}
+                />
+              );
+            })}
+          </div>
         ) : null}
+
         <div
           className={cn(
-            "relative flex h-40 w-40 items-center justify-center rounded-full border-[3px] bg-navy-900 shadow-[0_0_50px_rgba(245,197,24,0.22)] transition sm:h-48 sm:w-48",
+            "relative z-10 flex h-28 w-28 items-center justify-center rounded-full border-[3px] bg-white transition sm:h-32 sm:w-32",
             speaking
-              ? "border-gold-500 scale-[1.03]"
-              : listening
-                ? "border-gold-500/55"
-                : "border-gold-500/30",
+              ? "border-transparent"
+              : active
+                ? "border-gold-500 shadow-[0_0_0_6px_rgba(244,196,48,0.12)]"
+                : "border-navy-600",
           )}
         >
+          {!speaking ? (
+            <span
+              className={cn(
+                "pointer-events-none absolute inset-[-3px] rounded-full border-[3px]",
+                active ? "border-gold-500" : "border-transparent",
+              )}
+            />
+          ) : (
+            <span className="pointer-events-none absolute inset-[-2px] rounded-full border-2 border-[rgba(244,196,48,0.35)]" />
+          )}
           <Bot
             className={cn(
-              "h-20 w-20 sm:h-24 sm:w-24",
-              speaking ? "text-gold-400" : "text-gold-500/85",
+              "h-12 w-12 sm:h-14 sm:w-14",
+              active ? "text-gold-500" : "text-navy-950",
             )}
           />
         </div>
       </div>
-      <p className="mt-4 text-base font-medium text-ink-50 sm:text-lg">{label}</p>
-      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-gold-500">
-        {speaking ? "Speaking…" : listening ? "Listening…" : "Ready"}
+
+      <p className="mt-4 text-sm font-semibold text-ink-50">{label}</p>
+      <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-gold-500">
+        {resolved}
       </p>
     </div>
   );
