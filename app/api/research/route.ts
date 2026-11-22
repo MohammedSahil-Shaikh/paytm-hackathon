@@ -1,30 +1,32 @@
 import { NextResponse } from "next/server";
-import { mockResearch } from "@/lib/mock";
+import { researchCompany } from "@/lib/research/research-service";
 
 /**
  * Member 2 — POST /api/research
- * Placeholder returns mock research until SerpApi/You.com are integrated.
+ * Returns normalized research and falls back when providers are unavailable.
  */
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
-      company?: string;
-      role?: string;
-      jobDescription?: string;
+      company?: unknown;
+      role?: unknown;
+      jobDescription?: unknown;
     };
+    const company = typeof body.company === "string" ? body.company.trim() : "";
+    const role = typeof body.role === "string" ? body.role.trim() : "";
+    const jobDescription = typeof body.jobDescription === "string"
+      ? body.jobDescription.trim()
+      : undefined;
 
-    if (!body.company || !body.role) {
+    if (!company || !role) {
       return NextResponse.json(
         { error: "company and role are required" },
         { status: 400 },
       );
     }
 
-    return NextResponse.json({
-      ...mockResearch,
-      company: body.company,
-      role: body.role,
-    });
+    const research = await researchCompany({ company, role, jobDescription });
+    return NextResponse.json(research);
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }

@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
-import { mockOnboardingPlan } from "@/lib/mock";
+import { generateOnboardingPlan } from "@/lib/ai/onboarding";
+import type { CandidateProfile, InterviewReport, ResearchData } from "@/types";
 
-/**
- * Member 1 — POST /api/onboarding
- * Placeholder plan. Replace with lib/ai/onboarding.
- */
 export async function POST(request: Request) {
   try {
-    await request.json();
-    return NextResponse.json(mockOnboardingPlan);
+    const body = (await request.json()) as {
+      candidate: CandidateProfile;
+      report: InterviewReport;
+      research: ResearchData;
+    };
+    if (!body?.candidate || !body.report || !body.research) {
+      return NextResponse.json({ error: "candidate, report, and research are required" }, { status: 400 });
+    }
+    return NextResponse.json(await generateOnboardingPlan(body));
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid onboarding request" }, { status: 400 });
   }
 }

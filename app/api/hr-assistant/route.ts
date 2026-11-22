@@ -1,24 +1,15 @@
 import { NextResponse } from "next/server";
+import { askHrAssistant } from "@/lib/ai/assistant";
+import type { HrAssistantRequest } from "@/types";
 
-/**
- * Member 1 — POST /api/hr-assistant
- * Placeholder HR assistant. Replace with lib/ai/assistant.
- */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { question?: string };
-
-    if (!body.question?.trim()) {
-      return NextResponse.json({ error: "question is required" }, { status: 400 });
+    const body = (await request.json()) as HrAssistantRequest;
+    if (!body?.question?.trim() || !body.company || !body.role) {
+      return NextResponse.json({ error: "question, company, and role are required" }, { status: 400 });
     }
-
-    return NextResponse.json({
-      answer:
-        "I do not have verified policy information for that yet. Member 1 will connect this to mock policy context and the HR assistant logic.",
-      sources: [],
-      verified: false,
-    });
+    return NextResponse.json(await askHrAssistant(body));
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid HR assistant request" }, { status: 400 });
   }
 }

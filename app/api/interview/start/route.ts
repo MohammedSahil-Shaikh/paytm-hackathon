@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server";
-import { mockQuestions } from "@/lib/mock";
+import { startInterview } from "@/lib/ai/interview";
+import type { InterviewStartRequest } from "@/types";
 
-/**
- * Member 1 — POST /api/interview/start
- * Placeholder returns mock questions. Replace with lib/ai/interview.
- */
 export async function POST(request: Request) {
   try {
-    await request.json();
-
-    return NextResponse.json({
-      sessionId: `sess_${crypto.randomUUID().slice(0, 8)}`,
-      questions: mockQuestions,
-    });
+    const body = (await request.json()) as InterviewStartRequest;
+    if (!body?.candidate?.name || !body.candidate.targetCompany || !body.candidate.targetRole || !body.research) {
+      return NextResponse.json({ error: "candidate and research context are required" }, { status: 400 });
+    }
+    return NextResponse.json(await startInterview(body));
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid interview start request" }, { status: 400 });
   }
 }

@@ -29,5 +29,8 @@
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
   },
-  "description": "DayZero — Your journey starts before Day One."
+  "description": "DayZero — Your journey starts before Day One.",
+  "allowScripts": {
+    "sharp@0.33.5": true
+  }
 }
