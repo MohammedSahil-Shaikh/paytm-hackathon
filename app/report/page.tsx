@@ -1,14 +1,12 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { PlaceholderPanel } from "@/components/ui/placeholder-panel";
-import { mockReport } from "@/lib/mock";
+import { StepRail } from "@/components/journey/step-rail";
+import { ReportPanel } from "@/components/report/report-panel";
 
 export default function ReportPage() {
   return (
-    <AppShell title="Interview Report">
-      <PlaceholderPanel
-        title="Evidence-based feedback"
-        description={mockReport.overallSummary}
-      />
+    <AppShell eyebrow="Step 04" title="Interview Report">
+      <StepRail active={3} />
+      <ReportPanel />
     </AppShell>
   );
 }

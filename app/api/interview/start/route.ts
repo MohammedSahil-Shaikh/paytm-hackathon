@@ -1,19 +1,28 @@
-import { NextResponse } from "next/server";
-import { mockQuestions } from "@/lib/mock";
+import { startInterview } from "@/lib/ai/interview";
+import { jsonError, jsonSuccess, validationError } from "@/lib/ai/utils";
 
 /**
  * Member 1 — POST /api/interview/start
- * Placeholder returns mock questions. Replace with lib/ai/interview.
+ * Returns 5 role-specific questions + session metadata.
+ * Falls back to labeled mock questions when AI is unavailable.
  */
 export async function POST(request: Request) {
   try {
-    await request.json();
-
-    return NextResponse.json({
-      sessionId: `sess_${crypto.randomUUID().slice(0, 8)}`,
-      questions: mockQuestions,
-    });
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    const body = await request.json();
+    const data = await startInterview(body);
+    return jsonSuccess(data);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return validationError("Malformed JSON body");
+    }
+    const message =
+      error instanceof Error ? error.message : "Failed to start interview";
+    if (
+      message.toLowerCase().includes("invalid") ||
+      message.toLowerCase().includes("required")
+    ) {
+      return validationError(message);
+    }
+    return jsonError("INTERVIEW_START_ERROR", message, 500);
   }
 }

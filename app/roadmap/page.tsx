@@ -1,19 +1,12 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { PlaceholderPanel } from "@/components/ui/placeholder-panel";
-import { mockOnboardingPlan } from "@/lib/mock";
+import { StepRail } from "@/components/journey/step-rail";
+import { RoadmapPanel } from "@/components/onboarding/roadmap-panel";
 
 export default function RoadmapPage() {
   return (
-    <AppShell title="30 / 60 / 90 Roadmap">
-      <div className="grid gap-4 md:grid-cols-3">
-        {mockOnboardingPlan.phases.map((phase) => (
-          <PlaceholderPanel
-            key={phase.period}
-            title={phase.period}
-            description={`Goals: ${phase.goals.join("; ")}`}
-          />
-        ))}
-      </div>
+    <AppShell eyebrow="Step 06" title="30 / 60 / 90 Roadmap">
+      <StepRail active={5} />
+      <RoadmapPanel />
     </AppShell>
   );
 }

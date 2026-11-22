@@ -15,7 +15,7 @@ const sora = Sora({
 export const metadata: Metadata = {
   title: "DayZero | Your journey starts before Day One",
   description:
-    "DayZero connects company research, AI interviews, hiring transition, and personalized onboarding.",
+    "DayZero connects company research, AI interviews, hiring transition, and personalized onboarding. Navy and gold premium AI SaaS experience.",
 };
 
 export default function RootLayout({

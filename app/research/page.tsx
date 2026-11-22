@@ -1,14 +1,12 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { PlaceholderPanel } from "@/components/ui/placeholder-panel";
-import { mockResearch } from "@/lib/mock";
+import { StepRail } from "@/components/journey/step-rail";
+import { ResearchPanel } from "@/components/research/research-panel";
 
 export default function ResearchPage() {
   return (
-    <AppShell title="Company Research">
-      <PlaceholderPanel
-        title={`${mockResearch.company} · ${mockResearch.role}`}
-        description={`${mockResearch.overview} Requirements: ${mockResearch.jobRequirements.join(", ")}.`}
-      />
+    <AppShell eyebrow="Step 02" title="Company Research">
+      <StepRail active={1} />
+      <ResearchPanel />
     </AppShell>
   );
 }

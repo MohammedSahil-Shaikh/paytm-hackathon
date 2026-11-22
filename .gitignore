@@ -56,3 +56,4 @@ coverage/
 .vercel
 postgres-data/
 *.sqlite3
+tmp-*.json

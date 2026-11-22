@@ -1,15 +1,26 @@
-import { NextResponse } from "next/server";
-import { mockReport } from "@/lib/mock";
+import { generateInterviewReport } from "@/lib/ai/report";
+import { jsonError, jsonSuccess, validationError } from "@/lib/ai/utils";
 
 /**
  * Member 1 — POST /api/interview/finish
- * Placeholder report. Replace with lib/ai/report.
  */
 export async function POST(request: Request) {
   try {
-    await request.json();
-    return NextResponse.json(mockReport);
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    const body = await request.json();
+    const data = await generateInterviewReport(body);
+    return jsonSuccess(data);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return validationError("Malformed JSON body");
+    }
+    const message =
+      error instanceof Error ? error.message : "Failed to generate report";
+    if (message.includes("not found")) {
+      return jsonError("SESSION_NOT_FOUND", message, 404);
+    }
+    if (message.toLowerCase().includes("without answers")) {
+      return validationError(message);
+    }
+    return jsonError("INTERVIEW_FINISH_ERROR", message, 500);
   }
 }

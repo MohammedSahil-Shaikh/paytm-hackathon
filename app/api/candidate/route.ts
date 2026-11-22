@@ -1,31 +1,22 @@
-import { NextResponse } from "next/server";
-import type { CandidateProfile } from "@/types";
+import { processCandidate } from "@/lib/ai/candidate";
+import { jsonError, jsonSuccess, validationError } from "@/lib/ai/utils";
 
 /**
  * Member 1 — POST /api/candidate
- * Placeholder creates an in-memory candidate id for session flow.
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as CandidateProfile;
-
-    if (!body?.name || !body?.targetCompany || !body?.targetRole) {
-      return NextResponse.json(
-        { error: "name, targetCompany, and targetRole are required" },
-        { status: 400 },
-      );
+    const body = await request.json();
+    const candidate = await processCandidate(body);
+    return jsonSuccess(candidate, 201);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return validationError("Malformed JSON body");
     }
-
-    return NextResponse.json({
-      id: `cand_${crypto.randomUUID().slice(0, 8)}`,
-      createdAt: new Date().toISOString(),
-      ...body,
-      skills: body.skills ?? [],
-      experience: body.experience ?? [],
-      strengths: body.strengths ?? [],
-      skillGaps: body.skillGaps ?? [],
-    });
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    const message = error instanceof Error ? error.message : "Invalid candidate data";
+    if (message.toLowerCase().includes("invalid") || message.toLowerCase().includes("required")) {
+      return validationError(message);
+    }
+    return jsonError("CANDIDATE_ERROR", message, 400);
   }
 }
